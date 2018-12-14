@@ -11,11 +11,15 @@
 
 - type: replace
   path: /instance_groups/name=bosh/jobs/name=uaa/properties/uaa/clients/concourse/redirect-uri
-  value: https://((concourse_domain))/auth/oauth/callback
+  value: https://((concourse_domain))/sky/issuer/callback
 
 - type: replace
   path: /instance_groups/name=bosh/jobs/name=atc/properties/generic_oauth/auth_url
   value: "https://((concourse_domain)):8443/oauth/authorize"
+
+- type: replace
+  path: /instance_groups/name=bosh/jobs/name=credhub-importer/properties/credhub/import_credentials/name=concourse~1main~1concourse_url/value
+  value: *external_url
 
 # UAA
 - type: replace

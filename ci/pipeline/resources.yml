@@ -57,7 +57,6 @@ resources:
       client: admin
       client_secret: (( grab meta.lite.client_secret ))
       ca_cert: (( grab meta.lite.ca_cert ))
-    tags: [vsphere]
 
   - name: compiled-releases-concourse
     type: s3
@@ -104,6 +103,15 @@ resources:
       region_name: eu-west-1
       regexp: "bucc-bbr.*-(\\d+).tgz"
 
+  - name: compiled-releases-vault-credhub-proxy
+    type: s3
+    source:
+      bucket: "bucc-compiled-releases"
+      access_key_id: (( grab meta.aws.access_key_id ))
+      secret_access_key: (( grab meta.aws.secret_access_key ))
+      region_name: eu-west-1
+      regexp: "vault-credhub-proxy.*-(\\d+).tgz"
+
   - name: compiled-releases-manifest
     type: git
     source:
@@ -127,6 +135,11 @@ resources:
     type: bosh-io-release
     source:
       repository: concourse/concourse
+
+  - name: bosh-release-postgres
+    type: bosh-io-release
+    source:
+      repository: cloudfoundry/postgres-release
 
   - name: bosh-release-garden-runc
     type: bosh-io-release
@@ -160,4 +173,11 @@ resources:
     source:
       user: starkandwayne
       repository: uaa-cli-releases
+      access_token: (( grab meta.github.access_token ))
+
+  - name: safe-cli
+    type: github-release
+    source:
+      user: starkandwayne
+      repository: safe
       access_token: (( grab meta.github.access_token ))

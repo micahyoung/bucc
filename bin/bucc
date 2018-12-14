@@ -76,12 +76,6 @@ validate_vars_file() {
     fi
 }
 
-vars_file() {
-    local state_vars=${state}/vars.yml
-    bosh int $vars_file > $state_vars
-    echo $state_vars
-}
-
 validate_cpi() {
     local cpis_dir=${repo_root}/ops/cpis
     if [ ! -d ${cpis_dir}/$(cpi) ]; then
@@ -117,7 +111,7 @@ normalize_flags() (
 int_args() (
     local ops_files=()
 
-    vars_file_arg="--vars-file $(vars_file)"
+    vars_file_arg="--vars-file $vars_file"
 
     if [ $(lite) = true ]; then
         ops_files+=(${repo_root}/ops/lite/*.yml)
@@ -140,7 +134,7 @@ int_args() (
         ops_files+=(${project_root}/operators/*.yml)
     fi
 
-    ops_file_args=$(printf '%s\n' "${ops_files[@]}" | sed 's|\(.*\)/|\1@|' | sort -t@ -k2 | sed 's|@|/|' | sed 's/^/-o /' | xargs)
+    ops_file_args=$(printf '%s\n' "${ops_files[@]}" | sed 's@\(.*\)/\(.*\)$@\2 \1/\2@g' | sort | cut -d' ' -f2- | sed 's/^/-o /' | xargs)
     echo "${manifest} ${ops_file_args} ${vars_store_arg} ${vars_file_arg}"
 )
 
@@ -156,14 +150,14 @@ usage() {
     echo "BUCC (BOSH UAA Credhub Concourse) CLI v${version}"
     echo "  up -- creates the bucc VM with bosh create-env"
     echo "  down -- deletes VM with bosh delete-env - can be used with --clean"
-    echo "  clean -- start with a clean enviorment - use this only after you've torn down your env"
+    echo "  clean -- start with a clean environment - use this only after you've torn down your env"
     echo "  ssh -- ssh into the bucc VM"
-    echo "  env -- sourceable envrionment variables for cli clients"
+    echo "  env -- sourceable environment variables for cli clients"
     echo "  int -- wrapper for 'bosh int' for the bosh manifest"
     echo "  info -- displays info about bucc deployed endpoints"
     echo "  bosh -- configures bosh cli"
     echo "  credhub -- configures credhub cli"
-    echo "  uaac -- configures uaac cli"
+    echo "  safe -- configures safe cli"
     echo "  uaa -- configures uaa cli"
     echo "  fly -- configures fly cli"
     echo "  bbr -- wrapper for bbr cli"
@@ -192,7 +186,7 @@ up_usage() {
 }
 
 down_usage() {
-    echo "  -c | --clean  cleans up your enviroment by removing state files"
+    echo "  -c | --clean  cleans up your environment by removing state files"
 }
 
 platform() {
@@ -216,6 +210,7 @@ faketty() {
 
 up() {
     local flags="--cpi $(cpi)"
+    local skip_drain="--skip-drain"
     if [ $(lite) = true ]; then
         flags+=" --lite"
     fi
@@ -226,34 +221,36 @@ up() {
     echo -e "Flag files: '${state}/{cpi,lite,flags}'\n"
 
     if [[ ${DEBUG} == true ]]; then
-        echo -e "bosh create-env $(int_args | sed 's/yml/yml \\ \\n/g') ${state_arg}\n"
+        echo -e "bosh create-env ${skip_drain} $(int_args | sed 's/yml/yml \\ \\n/g') ${state_arg}\n"
     fi
 
-    bosh create-env $(int_args) ${state_arg} "$@"
+    bosh create-env ${skip_drain} $(int_args) ${state_arg} "$@"
 }
 
 down() {
+    local skip_drain="--skip-drain"
     if [ ! -e $vars_file ]; then
-      echo "please create a enviroment first with 'bucc up'"
+      echo "please create a environment first with 'bucc up'"
       exit 1
     fi
 
-    bosh delete-env $(int_args) ${state_arg} "$@"
+    bosh delete-env ${skip_drain} $(int_args) ${state_arg} "$@"
     echo "you can use the clean command if your are planning to use a new cpi or ip"
 }
 
 clean() {
   if curl -m 1 -k -s https://$(bosh int <(bucc vars) --path /bosh_target):25555/info | grep uaa &>/dev/null ; then
-    echo "your enviroment is still running, please tear it down with 'bucc down --clean'"
+    echo "your environment is still running, please tear it down with 'bucc down --clean'"
     exit 1
   fi
   rm -rf ${state} "${project_root}/operators" "${project_root}/offline_resources"
   mv ${vars_file} ${vars_file}.bck
   echo "'state' dir has been cleaned and 'vars.yml' has been moved to 'vars.yml.bck'"
+  echo "to also cleanup your current shell run `source <(bucc env --clean)`"
 }
 
 vars() {
-    cat $(vars_file)
+    bosh int ${vars_file}
     echo "bosh_environment: $(ip)"
     echo "bosh_target: $(ip)"
     echo "bosh_ca_cert: |"
@@ -263,9 +260,10 @@ vars() {
     echo "credhub_url: $(int --path /instance_groups/0/properties/director/config_server/url | rev | cut -c6- | rev)"
     echo "credhub_username: credhub-admin"
     echo "credhub_password: $(int --path /instance_groups/0/jobs/name=uaa/properties/uaa/clients/credhub-admin/secret)"
+    echo "vault_url: https://$(int --path /instance_groups/0/jobs/name=vault-credhub-proxy/properties/address)"
     echo "concourse_url: $(int --path /instance_groups/0/jobs/name=atc/properties/external_url)"
-    echo "concourse_username: $(int --path /instance_groups/0/jobs/name=atc/properties/basic_auth_username)"
-    echo "concourse_password: $(int --path /instance_groups/0/jobs/name=atc/properties/basic_auth_password)"
+    echo "concourse_username: $(int --path /instance_groups/0/jobs/name=atc/properties/add_local_users/0 | cut -d: -f1)"
+    echo "concourse_password: $(int --path /instance_groups/0/jobs/name=atc/properties/add_local_users/0 | cut -d: -f2)"
     echo "concourse_ca_cert: |"
     echo "$(cat $(ca_cert) | sed 's/^/  /')"
 }
@@ -296,6 +294,10 @@ _alias() {
     get_var_with_default "alias" "bucc"
 }
 
+clean_env() {
+    env | grep -e 'BOSH\|CREDHUB' | cut -d'=' -f1 | sed 's/^/unset /'
+}
+
 env() {
     echo "export PATH=\"${PATH}\""
     if [[ ! -f ${vars_store} ]]; then
@@ -308,9 +310,12 @@ env() {
     echo "export BOSH_GW_USER=$(int --path /instance_groups/name=bosh/jobs/name=user_add/properties/users/0/name)"
     echo "export BOSH_GW_HOST=$(ip)"
     echo "export BOSH_GW_PRIVATE_KEY=$(ssh_private_key)"
-    echo "export CREDHUB_CLIENT=credhub-admin"
+    echo "export CREDHUB_CLIENT=$(get_var credhub_username)"
     echo "export CREDHUB_SECRET=$(get_var credhub_password)"
     echo "export CREDHUB_CA_CERT=$(ca_cert)"
+    if [[ $BOSH_ALL_PROXY != "" ]]; then
+      echo "export SAFE_PROXY=$BOSH_ALL_PROXY"
+    fi
 }
 
 routes() {
@@ -357,14 +362,17 @@ _fly() {
 }
 
 _bosh() {
+    export BOSH_ENVIRONMENT="$(get_var bosh_target)"
+    export BOSH_CA_CERT="$(get_var bosh_ca_cert)"
+    export BOSH_CLIENT="$(get_var bosh_client)"
+    export BOSH_CLIENT_SECRET="$(get_var bosh_client_secret)"
+
+    bosh alias-env "$(_alias)"
+
     unset BOSH_ENVIRONMENT
     unset BOSH_CA_CERT
     unset BOSH_CLIENT
     unset BOSH_CLIENT_SECRET
-
-    bosh alias-env "$(_alias)" \
-                --environment $(get_var bosh_target) \
-                --ca-cert "$(cat $(ca_cert))"
 
     printf '%s\n%s\n' $(get_var bosh_client) $(get_var bosh_client_secret) | \
         bosh log-in -e "$(_alias)"
@@ -392,11 +400,30 @@ _credhub() {
     local cli_path=${repo_root}/bin/credhub
     ${cli_path} login --server $(get_var credhub_url) \
             --ca-cert $(ca_cert) \
-            --client-name credhub-admin \
+            --client-name $(get_var credhub_username) \
             --client-secret $(get_var credhub_password)
 }
 
-_bbr_download() {
+_safe() {
+    local url="https://github.com/starkandwayne/safe/releases/download"
+    local version=$(grep safe ${repo_root}/.versions | cut -d= -f2)
+    local cli_path=${repo_root}/bin/safe
+
+    if ! ( [ -f ${cli_path} ] && ${cli_path} --version 2>&1 | head -n 1 | grep ${version} > /dev/null); then
+      echo "installing safe cli '${version}' into: ${repo_root}/bin/"
+      pushd $(mktemp -d)
+      curl -s -L >safe "${url}/v${version}/safe-$(platform)-amd64"
+      chmod +x safe
+      mv safe ${repo_root}/bin/
+      popd
+    fi
+
+    ${cli_path} target -k $(get_var vault_url) $(_alias)
+    echo $(get_var credhub_username):$(get_var credhub_password) | ${cli_path} auth token
+}
+
+
+_bbr() {
     local url="https://github.com/cloudfoundry-incubator/bosh-backup-and-restore/releases/download"
     local version=$(grep bbr ${repo_root}/.versions | cut -d= -f2)
     local cli_path=${repo_root}/bin/bbr
@@ -433,10 +460,18 @@ _ensure_bosh_cli_installed() {
       pushd $(mktemp -d)
       if [ "$(platform)" == "darwin" ]; then
           curl -s -L >bosh "${url}-${version}-darwin-amd64"
+          if [[ $? != 0 ]]; then
+            echo "Unable to download the bosh CLI. Please check your internet connection and try again."
+            exit 1
+          fi
           chmod +x bosh
           mv bosh ${repo_root}/bin/
       else
           curl -s -L >bosh "${url}-${version}-linux-amd64"
+          if [[ $? != 0 ]]; then
+            echo "Unable to download the bosh CLI. Please check your internet connection and try again."
+            exit 1
+          fi
           chmod +x bosh
           mv bosh ${repo_root}/bin/
       fi
@@ -523,15 +558,26 @@ smoke_tests() {
 
     header "testing credhub"
     ${bucc} credhub
-    credhub set --no-overwrite --name secret/ping --value pong --type value
+    credhub set --name secret/ping --value pong --type value
     credhub delete --name secret/ping
 
     header "testing concourse"
     ${bucc} fly
+    fly -t "$(_alias)" sync
 
     if ! fly -t "$(_alias)" workers | grep running; then
         >&2 echo "no concourse workers"; exit 1
     fi
+
+    header "testing uaa"
+    ${bucc} uaa
+    uaa get-user admin -a userName
+
+    header "testing safe"
+    ${bucc} safe
+    safe gen secret/account passphrase
+    safe get secret/account
+    safe delete secret/account
 }
 
 _spruce() {
@@ -706,6 +752,15 @@ case "$1" in
         ;;
 
     env)
+        shift
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                -c|--clean|clean)
+                    clean_env
+                    exit 0
+                    ;;
+            esac
+        done
         env "$@"
         ;;
 
@@ -718,6 +773,10 @@ case "$1" in
         ;;
     credhub)
         _credhub "$@"
+        ;;
+
+    safe)
+        _safe "$@"
         ;;
 
     uaac)

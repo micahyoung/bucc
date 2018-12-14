@@ -5,8 +5,8 @@ meta:
 
   lite:
     target: (( param "Bosh lite target" ))
-    client_secret: (( param "Bosh lite client secret" ))
-    ca_cert: (( param "Bosh lite ca cert" ))
+    client_secret: ((bosh-lite-admin-password))
+    ca_cert: ((bosh-lite-ca))
 
   vcenter:
     username: (( param "Please specify the username used for vCenter" ))
@@ -62,16 +62,19 @@ groups:
       - credhub-importer-compiled-release-ops-file
       - postgres-compiled-release-ops-file
       - bucc-bbr-compiled-release-ops-file
+      - vault-credhub-proxy-compiled-release-ops-file
       - bucc-creds-bbr-ops-file
   - name: upstream
     jobs:
       - bosh-deployment-repo
       - concourse-release
+      - postgres-release
       - garden-runc-release
       - update-credhub-cli
       - update-bbr-cli
       - update-bosh-cli
       - update-uaa-cli
+      - update-safe-cli
 
 resource_types:
   - name: bosh-deployment

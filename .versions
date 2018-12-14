@@ -1,6 +1,7 @@
-credhub=1.7.6
-bucc=0.5.0
-bbr=1.2.4
-bosh=4.0.1
+credhub=2.2.0
+bucc=0.6.2
+bbr=1.3.1
+bosh=5.4.0
 uaa=0.0.1
+safe=0.9.9
 spruce=1.18.0
